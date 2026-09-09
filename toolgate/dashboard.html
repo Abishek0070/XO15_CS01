@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>toolgate — decision dashboard</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --border: #2d333b;
+    --text: #e6edf3; --muted: #8b949e;
+    --allow: #3fb950; --deny: #f85149; --escalate: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  header { display: flex; align-items: baseline; gap: 14px; padding: 18px 24px;
+           border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 18px; margin: 0; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .counters { display: flex; gap: 12px; padding: 16px 24px; flex-wrap: wrap; }
+  .counter { background: var(--panel); border: 1px solid var(--border);
+             border-radius: 8px; padding: 10px 18px; min-width: 130px; }
+  .counter .n { font-size: 26px; font-weight: 700; }
+  .counter .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .counter.allow .n { color: var(--allow); }
+  .counter.deny .n { color: var(--deny); }
+  .counter.escalate .n { color: var(--escalate); }
+  main { padding: 0 24px 40px; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel);
+          border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border);
+           vertical-align: top; }
+  th { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: 1px 9px; border-radius: 999px;
+           font-size: 11px; font-weight: 700; }
+  .badge.ALLOW    { background: rgba(63,185,80,.15);  color: var(--allow); }
+  .badge.DENY     { background: rgba(248,81,73,.15);  color: var(--deny); }
+  .badge.ESCALATE { background: rgba(210,153,34,.15); color: var(--escalate); }
+  .reason { color: var(--muted); font-size: 12px; max-width: 520px; }
+  .effects { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .effects .chain { color: var(--escalate); font-weight: 700; }
+  .sid { color: var(--muted); font-size: 11px; }
+  .risk { font-variant-numeric: tabular-nums; }
+  .risk.normal { color: var(--allow); } .risk.elevated { color: var(--escalate); }
+  .risk.critical { color: var(--deny); }
+  .empty { color: var(--muted); padding: 40px; text-align: center; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%;
+         background: var(--allow); margin-right:6px; animation: pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity:.3; } }
+  header .clear-btn { margin-left: auto; background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px;
+    cursor: pointer; font: inherit; font-size: 12px; }
+  header .clear-btn:hover { border-color: var(--deny); color: var(--deny); }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot"></span>toolgate</h1>
+  <span class="sub">live authorization decisions &mdash; polling every 1.5s</span>
+  <button id="clear-btn" type="button" class="clear-btn">Clear log</button>
+</header>
+
+<div class="counters">
+  <div class="counter allow"><div class="n" id="c-allow">0</div><div class="l">Allowed</div></div>
+  <div class="counter deny"><div class="n" id="c-deny">0</div><div class="l">Denied</div></div>
+  <div class="counter escalate"><div class="n" id="c-escalate">0</div><div class="l">Escalated</div></div>
+  <div class="counter"><div class="n" id="c-sessions">0</div><div class="l">Sessions</div></div>
+</div>
+
+<main>
+  <table>
+    <thead>
+      <tr><th>Time</th><th>Session</th><th>Tool</th><th>Decision</th><th>Rule</th>
+          <th>Directive src</th><th>Effect / chain</th><th>Risk</th><th>Reason</th></tr>
+    </thead>
+    <tbody id="rows"><tr><td colspan="9" class="empty">Waiting for decisions…</td></tr></tbody>
+  </table>
+</main>
+
+<script>
+async function refresh() {
+  try {
+    const r = await fetch('/audit/recent?limit=200');
+    const data = await r.json();
+    document.getElementById('c-allow').textContent = data.counts.ALLOW || 0;
+    document.getElementById('c-deny').textContent = data.counts.DENY || 0;
+    document.getElementById('c-escalate').textContent = data.counts.ESCALATE || 0;
+    document.getElementById('c-sessions').textContent = data.session_count;
+
+    const tbody = document.getElementById('rows');
+    if (!data.entries.length) return;
+    tbody.innerHTML = data.entries.map(e => `
+      <tr>
+        <td>${e.time}</td>
+        <td class="sid">${e.session_id}<br>${esc(e.intent).slice(0, 42)}</td>
+        <td>${esc(e.tool)}</td>
+        <td><span class="badge ${e.decision}">${e.decision}</span></td>
+        <td>${esc(e.rule)}</td>
+        <td>${esc(e.directive_source)}</td>
+        <td class="effects">${(e.effects || []).map(esc).join(', ')}${e.chain ? `<br><span class="chain">⛓ ${esc(e.chain)}</span>` : ''}</td>
+        <td class="risk ${e.risk_state}">${e.session_risk_after.toFixed(1)}</td>
+        <td class="reason">${esc(e.reason)}</td>
+      </tr>`).join('');
+  } catch (err) { /* server restarting; keep polling */ }
+}
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+document.getElementById('clear-btn').addEventListener('click', async () => {
+  if (!confirm('Clear all sessions and audit history in this process?')) return;
+  try {
+    await fetch('/audit/clear', { method: 'POST' });
+    refresh();
+  } catch (err) { /* ignore; next poll will retry */ }
+});
+
+refresh();
+setInterval(refresh, 1500);
+</script>
+</body>
+</html>

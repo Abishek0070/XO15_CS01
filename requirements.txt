@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+pydantic
+anthropic
+groq
+httpx
+
+# examples/agent_server.py (LangChain agent + web UI)
+langchain-core
+langchain-groq
+requests
+beautifulsoup4
+pypdf
+python-multipart
+python-dotenv

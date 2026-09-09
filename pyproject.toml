@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-toolgate"
+version = "0.1.0"
+description = "Adaptive authorization mediation layer between AI agents and their tools: every tool call gets ALLOW / DENY / ESCALATE based on instruction provenance, declared scope, and session-level cumulative risk."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "X'O Code 2026 — PS01 team" }]
+keywords = ["ai-agents", "security", "authorization", "prompt-injection", "tool-calling", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2",
+]
+
+[project.optional-dependencies]
+llm = ["anthropic>=0.40", "groq>=0.30"]
+langchain = ["langchain-core>=0.2"]
+dev = ["httpx", "pytest"]
+
+[project.scripts]
+toolgate-dashboard = "toolgate.api:main"
+
+[tool.setuptools]
+packages = ["toolgate", "toolgate.tools", "toolgate.integrations"]
+
+[tool.setuptools.package-data]
+toolgate = ["dashboard.html"]
