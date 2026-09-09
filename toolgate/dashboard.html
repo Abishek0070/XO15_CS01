@@ -40,6 +40,8 @@
   .reason { color: var(--muted); font-size: 12px; max-width: 520px; }
   .effects { color: var(--muted); font-size: 12px; white-space: nowrap; }
   .effects .chain { color: var(--escalate); font-weight: 700; }
+  .reason .stale { color: var(--escalate); font-weight: 700; }
+  .reason .reused { color: var(--allow); font-weight: 700; }
   .sid { color: var(--muted); font-size: 11px; }
   .risk { font-variant-numeric: tabular-nums; }
   .risk.normal { color: var(--allow); } .risk.elevated { color: var(--escalate); }
@@ -93,14 +95,14 @@ async function refresh() {
     tbody.innerHTML = data.entries.map(e => `
       <tr>
         <td>${e.time}</td>
-        <td class="sid">${e.session_id}<br>${esc(e.intent).slice(0, 42)}</td>
+        <td class="sid">${e.session_id} · ctx v${e.context_version ?? 0}${e.phase && e.phase !== 'default' ? ' · ' + esc(e.phase) : ''}<br>${esc(e.intent).slice(0, 42)}</td>
         <td>${esc(e.tool)}</td>
         <td><span class="badge ${e.decision}">${e.decision}</span></td>
         <td>${esc(e.rule)}</td>
         <td>${esc(e.directive_source)}</td>
         <td class="effects">${(e.effects || []).map(esc).join(', ')}${e.chain ? `<br><span class="chain">⛓ ${esc(e.chain)}</span>` : ''}</td>
         <td class="risk ${e.risk_state}">${e.session_risk_after.toFixed(1)}</td>
-        <td class="reason">${esc(e.reason)}</td>
+        <td class="reason">${e.stale_grant ? `<span class="stale">⟲ ${esc(e.stale_grant)}</span><br>` : ''}${e.reused_grant && !e.stale_grant ? `<span class="reused">✓ approval ${esc(e.reused_grant)}</span><br>` : ''}${esc(e.reason)}</td>
       </tr>`).join('');
   } catch (err) { /* server restarting; keep polling */ }
 }

@@ -135,14 +135,32 @@ class TaskSession:
         return self.acting_on(TrustLevel.TOOL_OUTPUT, origin_id)
 
     # -- escalation resolution ----------------------------------------------
-    def confirm(self, escalation: ToolEscalated) -> Any:
+    def confirm(self, escalation: ToolEscalated, *, reusable: bool = False) -> Any:
         """A human has approved the escalated action out of band. Records
-        the override and executes the original call exactly once."""
-        self.mediator.record_human_override(escalation.action, self.ctx, escalation.result)
+        the override and executes the original call exactly once.
+
+        reusable=False (default): the approval covers only this call.
+        reusable=True: an IDENTICAL later call (same params, directive
+        source, scope, phase, taint and risk state) is allowed without
+        asking again. Any difference at all — another destination, file,
+        account, operation, phase, or a directive that now comes from
+        retrieved content — makes the approval stale and the call is
+        evaluated fresh. Approvals are never permission for a tool."""
+        self.mediator.record_human_override(
+            escalation.action, self.ctx, escalation.result, reusable=reusable)
         retry: Callable | None = getattr(escalation, "_retry", None)
         if retry is None:
             raise RuntimeError("This escalation has no bound callable to retry.")
         return retry()
+
+    # -- context changes ------------------------------------------------------
+    def enter_phase(self, phase: str, scope: set[str] | list[str] | None = None) -> None:
+        """Move to a new task phase, optionally changing the declared scope.
+        Everything decided before this point was decided for the old phase."""
+        self.ctx.enter_phase(phase, set(scope) if scope is not None else None)
+
+    def set_scope(self, scope: set[str] | list[str]) -> None:
+        self.ctx.set_scope(set(scope))
 
     # -- introspection -------------------------------------------------------
     @property

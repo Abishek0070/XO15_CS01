@@ -99,8 +99,7 @@ def _scan_output_and_taint(sess: TaskSession, tool_name: str, result: Any) -> No
     advisor = sess.mediator.policy.advisor
     check = advisor.check_injection(text[:_SCAN_LIMIT])
     if check.is_injection:
-        sess.ctx.tainted = True
-        sess.ctx.taint_origin = f"output_of:{tool_name}"
+        sess.ctx.mark_tainted(f"output_of:{tool_name}")   # also bumps context version
 
 
 def _effective_directive(sess: TaskSession) -> ProvenanceTag:

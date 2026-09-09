@@ -111,6 +111,65 @@ class PolicyResult:
     effects: list[str] = field(default_factory=list)
     chain: Optional[str] = None
     chain_steps: list[str] = field(default_factory=list)
+    # Stale-authorization analysis (rule R0). Every evaluation records the
+    # session context version it was judged under. If a human approval
+    # existed for this tool but was NOT reused, `stale_grant` says why —
+    # exactly what changed between the approved action and this one.
+    context_version: int = 0
+    reused_grant: Optional[str] = None      # grant_id, when an approval was legitimately reused
+    stale_grant: Optional[str] = None       # human-readable: "prior approval X not reused: ..."
+
+
+# ---------------------------------------------------------------------------
+# Human approvals are bound to context, never standing permissions
+# ---------------------------------------------------------------------------
+@dataclass
+class AuthorizationGrant:
+    """Issued when a human confirms an ESCALATEd action. It authorizes THAT
+    action in THAT context. A later call is only covered if nothing
+    relevant changed: same tool + operation, same parameters (resource,
+    destination, account...), same directive provenance, same declared
+    scope, same task phase, same taint and risk state. Anything else is a
+    different action and goes back through the policy engine."""
+    grant_id: str
+    action_id: str
+    tool_name: str
+    operation: str
+    params: dict[str, Any]
+    directive_source: str
+    scope: frozenset[str]
+    phase: str
+    tainted: bool
+    risk_state: str
+    context_version: int
+    reusable: bool = False        # False: single-use; True: may cover an IDENTICAL later call
+    uses: int = 0
+    granted_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def diff(self, action: "ProposedAction", ctx) -> list[str]:
+        """What differs between the approved action/context and this one.
+        Empty list == identical."""
+        changes: list[str] = []
+        if action.tool_name != self.tool_name or action.operation != self.operation:
+            changes.append(f"operation {self.tool_name}.{self.operation} -> {action.tool_name}.{action.operation}")
+        now = action.raw_params()
+        for key in sorted(set(self.params) | set(now)):
+            if self.params.get(key) != now.get(key):
+                changes.append(f"param '{key}': {self.params.get(key)!r} -> {now.get(key)!r}")
+        src = action.directive_provenance.source.name
+        if src != self.directive_source:
+            changes.append(f"directive source {self.directive_source} -> {src}")
+        if frozenset(ctx.declared_scope) != self.scope:
+            changes.append(f"declared scope {sorted(self.scope)} -> {sorted(ctx.declared_scope)}")
+        if ctx.phase != self.phase:
+            changes.append(f"task phase '{self.phase}' -> '{ctx.phase}'")
+        if ctx.tainted != self.tainted:
+            changes.append(f"session became tainted ({ctx.taint_origin})" if ctx.tainted else "session taint cleared")
+        if ctx.risk_state() != self.risk_state:
+            changes.append(f"session risk state {self.risk_state} -> {ctx.risk_state()}")
+        if not changes and ctx.context_version != self.context_version:
+            changes.append(f"session context version {self.context_version} -> {ctx.context_version}")
+        return changes
 
 
 @dataclass

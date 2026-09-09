@@ -116,7 +116,10 @@ def propose_action(session_id: str, req: ProposeActionRequest):
 
 
 @app.post("/session/{session_id}/actions/{action_id}/confirm")
-def confirm_escalation(session_id: str, action_id: str):
+def confirm_escalation(session_id: str, action_id: str, reusable: bool = False):
+    """Human approves a pending ESCALATE. The approval is bound to that
+    exact action + context (see AuthorizationGrant); pass ?reusable=true
+    to let an IDENTICAL later call skip re-confirmation."""
     ctx = store.get(session_id)
     if ctx is None:
         raise HTTPException(404, "unknown session")
@@ -124,8 +127,26 @@ def confirm_escalation(session_id: str, action_id: str):
     if pending is None:
         raise HTTPException(404, "no pending escalation with that action_id")
     action, escalate_result = pending
-    out = mediator.execute_after_human_confirmation(action, ctx, escalate_result)
-    return {"action_id": action_id, "decision": "ALLOW", "rule": "human-override", "result": out}
+    out = mediator.execute_after_human_confirmation(action, ctx, escalate_result, reusable=reusable)
+    return {"action_id": action_id, "decision": "ALLOW", "rule": "human-override",
+            "grant_id": ctx.grants[-1].grant_id, "result": out}
+
+
+class PhaseRequest(BaseModel):
+    phase: str
+    declared_scope: Optional[list[str]] = None
+
+
+@app.post("/session/{session_id}/phase")
+def enter_phase(session_id: str, req: PhaseRequest):
+    """Change task phase (and optionally scope) mid-session. Bumps the
+    context version: earlier approvals no longer apply."""
+    ctx = store.get(session_id)
+    if ctx is None:
+        raise HTTPException(404, "unknown session")
+    ctx.enter_phase(req.phase, set(req.declared_scope) if req.declared_scope is not None else None)
+    return {"session_id": session_id, "phase": ctx.phase, "declared_scope": sorted(ctx.declared_scope),
+            "context_version": ctx.context_version}
 
 
 @app.get("/session/{session_id}/audit")
@@ -141,6 +162,14 @@ def get_audit(session_id: str):
         "risk_state": ctx.risk_state(),
         "tainted": ctx.tainted,
         "effective_privileges": sorted(ctx.effective_privileges()),
+        "phase": ctx.phase,
+        "context_version": ctx.context_version,
+        "context_changes": ctx.context_changes,
+        "grants": [
+            {"grant_id": g.grant_id, "action_id": g.action_id, "tool": g.tool_name, "params": g.params,
+             "phase": g.phase, "context_version": g.context_version, "reusable": g.reusable, "uses": g.uses}
+            for g in ctx.grants
+        ],
         "audit_log": [
             {
                 "action_id": e.action.action_id,
@@ -153,6 +182,9 @@ def get_audit(session_id: str):
                 "effects": e.result.effects,
                 "chain": e.result.chain,
                 "chain_steps": e.result.chain_steps,
+                "context_version": e.result.context_version,
+                "reused_grant": e.result.reused_grant,
+                "stale_grant": e.result.stale_grant,
                 "session_risk_after": e.session_risk_after,
             }
             for e in ctx.audit_log
@@ -197,6 +229,10 @@ def audit_recent(limit: int = 200):
                 "directive_source": e.action.directive_provenance.source.name,
                 "effects": e.result.effects,
                 "chain": e.result.chain,
+                "phase": ctx.phase,
+                "context_version": e.result.context_version,
+                "reused_grant": e.result.reused_grant,
+                "stale_grant": e.result.stale_grant,
                 "session_risk_after": e.session_risk_after,
                 "risk_state": ctx.risk_state(),
             })

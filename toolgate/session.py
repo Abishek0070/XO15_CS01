@@ -8,7 +8,7 @@ from typing import Optional
 import time
 import uuid
 
-from .models import AuditEntry, ProposedAction, ToolCategory
+from .models import AuditEntry, AuthorizationGrant, ProposedAction, ToolCategory
 
 
 @dataclass
@@ -29,6 +29,15 @@ class SessionContext:
     # the policy engine itself only sees parameters. Feeds chain rule R7.
     sensitive_outputs: set[str] = field(default_factory=set)
     audit_log: list[AuditEntry] = field(default_factory=list)
+
+    # Stale-authorization defenses. `context_version` increments whenever
+    # the session's authorization context changes (scope, phase, taint), so
+    # anything decided under an older version is, by definition, stale.
+    # `grants` are human approvals, each bound to one action + context.
+    phase: str = "default"
+    context_version: int = 0
+    context_changes: list[str] = field(default_factory=list)
+    grants: list[AuthorizationGrant] = field(default_factory=list)
 
     RISK_ESCALATE_THRESHOLD = 6.0
     RISK_DENY_THRESHOLD = 10.0
@@ -57,6 +66,60 @@ class SessionContext:
         if self.cumulative_risk >= self.RISK_ESCALATE_THRESHOLD:
             return "elevated"
         return "normal"
+
+    # -- context changes: anything decided before one of these is stale ------
+    def bump_context(self, reason: str) -> None:
+        self.context_version += 1
+        self.context_changes.append(f"v{self.context_version}: {reason}")
+
+    def enter_phase(self, phase: str, scope: Optional[set[str]] = None) -> None:
+        """Move the task to a new phase, optionally with a different scope
+        (e.g. 'draft' with write access -> 'review' read-only). Every later
+        action is evaluated against the NEW scope; earlier approvals were
+        issued for the old phase and no longer apply."""
+        old_phase, old_scope = self.phase, sorted(self.declared_scope)
+        self.phase = phase
+        if scope is not None:
+            self.declared_scope = set(scope)
+        self.bump_context(f"phase '{old_phase}' -> '{phase}', scope {old_scope} -> {sorted(self.declared_scope)}")
+
+    def set_scope(self, scope: set[str]) -> None:
+        old = sorted(self.declared_scope)
+        self.declared_scope = set(scope)
+        self.bump_context(f"scope {old} -> {sorted(self.declared_scope)}")
+
+    def mark_tainted(self, origin: str) -> None:
+        if not self.tainted:
+            self.tainted = True
+            self.taint_origin = origin
+            self.bump_context(f"tainted by suspected injection in {origin}")
+
+    # -- grants ---------------------------------------------------------------
+    def add_grant(self, action: ProposedAction, *, reusable: bool) -> AuthorizationGrant:
+        grant = AuthorizationGrant(
+            grant_id=f"g-{uuid.uuid4().hex[:6]}",
+            action_id=action.action_id,
+            tool_name=action.tool_name,
+            operation=action.operation,
+            params=dict(action.raw_params()),
+            directive_source=action.directive_provenance.source.name,
+            scope=frozenset(self.declared_scope),
+            phase=self.phase,
+            tainted=self.tainted,
+            risk_state=self.risk_state(),
+            context_version=self.context_version,
+            reusable=reusable,
+        )
+        self.grants.append(grant)
+        return grant
+
+    def match_grant(self, action: ProposedAction) -> tuple[Optional[AuthorizationGrant], list[str]]:
+        """Most recent human approval for this tool, plus what has changed
+        since it was issued. (None, []) if no approval exists at all."""
+        for grant in reversed(self.grants):
+            if grant.tool_name == action.tool_name:
+                return grant, grant.diff(action, self)
+        return None, []
 
     def executed_actions(self) -> list[AuditEntry]:
         """Only actions that actually ran (ALLOW, incl. human overrides).

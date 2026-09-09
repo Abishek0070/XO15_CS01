@@ -8,6 +8,18 @@ ALLOW/DENY/ESCALATE to the caller.
 
 Design of the rule set (evaluated in order, first conclusive rule wins):
 
+  R0  No standing permission (stale authorization)
+      Authorization is a property of ONE action in ONE context, never of a
+      tool. Every call is evaluated fresh against the current parameters,
+      directive provenance, declared scope, task phase, taint and risk
+      state. A human approval (grant) of an earlier ESCALATE covers a later
+      call only if that call is IDENTICAL in all of those respects AND the
+      grant was issued as reusable; a single-use grant covers nothing after
+      the call it was issued for. When a grant exists but something changed
+      (different destination, resource, account, operation, phase, or who is
+      directing), the grant is explicitly reported as stale in the audit
+      entry and rules R1-R7 run as if no approval had ever been given.
+
   R1  Directive-authority rule
       If the *instruction to act* originated from a source that cannot
       grant authority (RETRIEVED_CONTENT, THIRD_PARTY_METADATA, and even
@@ -199,9 +211,54 @@ class PolicyEngine:
 
     def evaluate(self, action: ProposedAction, ctx: SessionContext) -> PolicyResult:
         effects = action_effects(action)
-        result = self._evaluate(action, ctx, effects)
+
+        # --- R0: is there a prior human approval, and does it still apply? --------
+        grant, changes = ctx.match_grant(action)
+        if grant is not None and not changes and grant.reusable:
+            grant.uses += 1
+            result = PolicyResult(
+                decision=Decision.ALLOW,
+                reason=(
+                    f"Identical to human-approved action {grant.action_id} (grant {grant.grant_id}, "
+                    f"reusable, use #{grant.uses}) in an unchanged context (v{ctx.context_version}). "
+                    f"Re-checked: same params, directive source, scope, phase, taint and risk state."
+                ),
+                rule="R0-grant-reuse",
+                risk_delta=_op_base_risk(action.tool_category, action.operation),
+                reused_grant=grant.grant_id,
+            )
+        else:
+            result = self._evaluate(action, ctx, effects)
+            if grant is None:
+                # No human approval — but was this identical call ALLOWed
+                # earlier under a different context (phase/scope/taint)?
+                # Say so explicitly: that ALLOW is not carried over either.
+                prior = next((e for e in reversed(ctx.audit_log)
+                              if e.action.tool_name == action.tool_name
+                              and e.action.raw_params() == action.raw_params()
+                              and e.result.decision == Decision.ALLOW), None)
+                if prior is not None and prior.result.context_version != ctx.context_version:
+                    since = ctx.context_changes[prior.result.context_version:]
+                    result.stale_grant = (
+                        f"earlier ALLOW of the identical call (action {prior.action.action_id}, "
+                        f"ctx v{prior.result.context_version}) NOT carried over; context changed "
+                        f"since: " + "; ".join(since)
+                    )
+            elif grant is not None:
+                if changes:
+                    result.stale_grant = (
+                        f"prior approval {grant.grant_id} (for {grant.tool_name}"
+                        f"({', '.join(f'{k}={v!r}' for k, v in grant.params.items())})) NOT reused: "
+                        + "; ".join(changes)
+                    )
+                else:
+                    result.stale_grant = (
+                        f"prior approval {grant.grant_id} was single-use and is spent; "
+                        f"evaluated fresh"
+                    )
         result.effects = sorted(effects)   # every audit entry carries its effects, so
-        return result                       # the session can compute the chain's privilege
+        result.context_version = ctx.context_version   # the session can compute the chain's privilege
+        return result
 
     def _evaluate(self, action: ProposedAction, ctx: SessionContext, effects: set[str]) -> PolicyResult:
         # --- R1: directive authority -------------------------------------------------

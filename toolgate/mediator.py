@@ -62,19 +62,31 @@ class AuthorizationMediator:
         return result
 
     def record_human_override(self, action: ProposedAction, ctx: SessionContext,
-                              escalate_result: PolicyResult) -> None:
+                              escalate_result: PolicyResult, *, reusable: bool = False) -> None:
         """Record that a human explicitly approved a previously-ESCALATEd
         action. Deliberately does NOT re-run policy evaluation — an
         escalation can only be cleared by a human, never re-argued by the
-        content that triggered it. The caller performs the execution."""
+        content that triggered it. The caller performs the execution.
+
+        The approval is stored as an AuthorizationGrant bound to this exact
+        action and the current context. It is NOT a permission for the
+        tool: a later call with a different destination/resource/account/
+        phase/directive goes back through the policy engine (rule R0)."""
         assert escalate_result.decision == Decision.ESCALATE
+        grant = ctx.add_grant(action, reusable=reusable)
         override = PolicyResult(
             decision=Decision.ALLOW,
-            reason=f"Human-confirmed override of escalation: {escalate_result.reason}",
+            reason=(
+                f"Human-confirmed override of escalation (grant {grant.grant_id}, "
+                f"{'reusable for identical calls' if reusable else 'single-use'}, bound to "
+                f"{action.tool_name}({', '.join(f'{k}={v!r}' for k, v in action.raw_params().items())}) "
+                f"in context v{ctx.context_version}): {escalate_result.reason}"
+            ),
             rule="human-override",
             risk_delta=0.0,
             effects=sorted(action_effects(action)),   # the action DID run: its effects join the chain
             chain=escalate_result.chain, chain_steps=escalate_result.chain_steps,
+            context_version=ctx.context_version, reused_grant=grant.grant_id,
         )
         ctx.record(AuditEntry(action=action, result=override, session_risk_after=ctx.cumulative_risk))
 
@@ -90,6 +102,6 @@ class AuthorizationMediator:
         )
 
     def execute_after_human_confirmation(self, action: ProposedAction, ctx: SessionContext,
-                                         confirmed_result: PolicyResult) -> dict:
-        self.record_human_override(action, ctx, confirmed_result)
+                                         confirmed_result: PolicyResult, *, reusable: bool = False) -> dict:
+        self.record_human_override(action, ctx, confirmed_result, reusable=reusable)
         return _tool_registry._execute(action.tool_category.value, action.operation, action.raw_params())
