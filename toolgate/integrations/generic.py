@@ -23,15 +23,15 @@ automatic protections that don't exist in the manual @guarded_tool path:
    function name ("read_file" -> file_ops.read, "send_email" ->
    messaging.send, ...) and can be overridden per tool.
 
-2. AUTO-TAINT — after every tool executes, its string output is scanned
-   for embedded-instruction content (the same advisor used by the
-   policy engine). If suspicious content is found, the session is
-   marked TAINTED. From then on, any tool call whose directive is still
-   the default USER provenance is automatically downgraded to
-   TOOL_OUTPUT — because once the agent has ingested a suspected
-   injection, "the user asked for this" can no longer be assumed. A
-   downgraded directive cannot grant authority (policy rule R1), so
-   out-of-scope follow-ups get DENIED instead of trusted.
+2. OUTPUT QUARANTINE (rule R8) — after every tool executes, its string
+   output is scanned for embedded-instruction content (the same advisor
+   used by the policy engine). If an injection is found the output is
+   NOT returned to the model: the call's audit entry becomes DENY and
+   ToolDenied is raised. The model only ever sees the denial notice, so
+   the injected instruction cannot influence later tool calls.
+   (A session can still be explicitly tainted via ctx.mark_tainted(); in
+   a tainted session the default USER directive is downgraded to
+   TOOL_OUTPUT, which cannot grant authority — rules R1/R1b.)
 
    This is an honest, best-effort heuristic: it narrows the window in
    unlabeled-provenance environments, it does not replace real
@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import re
 from typing import Any, Callable, Iterable, Optional
 
 from ..decorator import Sourced, TaskSession, current_session
@@ -84,22 +85,82 @@ def infer_category(tool_name: str) -> tuple[ToolCategory, str]:
 _SCAN_LIMIT = 4000
 
 
-def _scan_output_and_taint(sess: TaskSession, tool_name: str, result: Any) -> None:
+def _quarantine_output(sess: TaskSession, tool_name: str, result: Any,
+                       category: ToolCategory = ToolCategory.EXTERNAL_API,
+                       action: Optional[ProposedAction] = None) -> None:
+    """Post-execution check (rule R8). The policy engine authorized the CALL
+    before it ran; this authorizes the OUTPUT before it reaches the model.
+    If the output carries a prompt injection it is quarantined: the audit
+    entry for the call becomes DENY and ToolDenied is raised, so the model
+    never sees the injected content. Clean output is delivered, and noted
+    as sensitive if it looks like it (feeds chain rule R7)."""
     text = result if isinstance(result, str) else None
     if text is None and isinstance(result, dict):
         text = " ".join(str(v) for v in result.values() if isinstance(v, str))
     if not text:
         return
-    # Chain rule R7 needs to know when sensitive data has been *seen*, not
-    # just when a sensitive-looking path was requested. The policy engine
-    # only sees parameters; the adapter is the one place that sees output.
-    from ..policy_engine import _is_sensitive_value
-    if _is_sensitive_value(text[:_SCAN_LIMIT]):
-        sess.ctx.sensitive_outputs.add(tool_name)
+    excerpt = text[:_SCAN_LIMIT]
     advisor = sess.mediator.policy.advisor
-    check = advisor.check_injection(text[:_SCAN_LIMIT])
-    if check.is_injection:
-        sess.ctx.mark_tainted(f"output_of:{tool_name}")   # also bumps context version
+    check = advisor.check_injection(excerpt)
+    if not check.is_injection:
+        from ..policy_engine import _is_sensitive_value
+        if _is_sensitive_value(excerpt):
+            sess.ctx.sensitive_outputs.add(tool_name)
+        return
+
+    from ..models import AuditEntry, Decision, PolicyResult
+    from ..mediator import ToolDenied
+    m = re.search(r".{0,60}(ignore|disregard|you (are|must) now|system prompt|new instructions?).{0,120}",
+                  excerpt, re.I | re.S)
+    snippet = " ".join((m.group(0) if m else excerpt[:160]).split())
+    reason = (
+        f"Output of {tool_name} contains a suspected prompt injection ({check.rationale}). "
+        f"Excerpt: \"{snippet}\". The tool ran, but its output was QUARANTINED and not "
+        f"returned to the model, so the injected instruction never reaches it."
+    )
+    entry = next((e for e in reversed(sess.ctx.audit_log) if action is not None and e.action is action), None)
+    if entry is not None:
+        # Convert this call's ALLOW into the final verdict: DENY (output quarantined).
+        prev = entry.result
+        entry.result = PolicyResult(
+            decision=Decision.DENY, rule="R8-output-quarantine", reason=reason,
+            risk_delta=prev.risk_delta + 1.0, llm_consulted=prev.llm_consulted,
+            effects=prev.effects, context_version=prev.context_version,
+        )
+        sess.ctx.cumulative_risk += 1.0
+        entry.session_risk_after = sess.ctx.cumulative_risk
+        raise ToolDenied(entry.action, entry.result)
+
+    # No guarded call to attach to (scan_content used standalone): record a fresh DENY.
+    event = ProposedAction(
+        session_id=sess.ctx.session_id, tool_category=category, tool_name=tool_name,
+        operation="output_scan", params={},
+        directive_provenance=ProvenanceTag(TrustLevel.TOOL_OUTPUT, f"output_of:{tool_name}"),
+    )
+    verdict = PolicyResult(decision=Decision.DENY, rule="R8-output-quarantine", reason=reason,
+                           risk_delta=1.0, context_version=sess.ctx.context_version)
+    sess.ctx.record(AuditEntry(action=event, result=verdict, session_risk_after=sess.ctx.cumulative_risk))
+    raise ToolDenied(event, verdict)
+
+
+def scan_content(text: str, origin: str, category: str | ToolCategory = ToolCategory.FILE_OPS) -> None:
+    """For tools that READ untrusted content and return something derived
+    from it (a summary, an extraction, a translation): call this on the RAW
+    content before transforming it. toolgate only sees what a tool returns,
+    and a summary may not repeat the injected instruction verbatim.
+
+    If the content carries an injection, the enclosing guarded call is
+    DENIED (rule R8) and ToolDenied is raised out of your tool: the content
+    is quarantined and never summarized.
+
+        def summarize_document(name):
+            text = read(name)
+            toolgate.scan_content(text, origin=name)   # raises ToolDenied on injection
+            return llm.summarize(text)
+    """
+    sess = current_session()
+    _quarantine_output(sess, origin, text, ToolCategory(category),
+                       action=getattr(sess, "_current_action", None))
 
 
 def _effective_directive(sess: TaskSession) -> ProvenanceTag:
@@ -168,10 +229,15 @@ def guard_callable(
         )
 
         def _run():
-            result = fn(**clean_kwargs)
-            if scan_output:
-                _scan_output_and_taint(sess, tool_name, result)
-            return result
+            prev_action = getattr(sess, "_current_action", None)
+            sess._current_action = action          # lets scan_content() inside the tool find this call
+            try:
+                result = fn(**clean_kwargs)
+                if scan_output:
+                    _quarantine_output(sess, tool_name, result, tool_category, action=action)
+                return result
+            finally:
+                sess._current_action = prev_action
 
         try:
             sess.mediator.authorize(action, sess.ctx)

@@ -20,7 +20,7 @@ from .policy_engine import PolicyEngine
 from .session import SessionContext, SessionStore
 from .runtime import GLOBAL_STORE, GLOBAL_MEDIATOR
 from .dashboard_server import serve_dashboard, stop_dashboard
-from .integrations.generic import guard_callable, guard_tools
+from .integrations.generic import guard_callable, guard_tools, scan_content
 
 __version__ = "0.1.0"
 
@@ -31,5 +31,5 @@ __all__ = [
     "Decision", "ToolCategory", "TrustLevel", "ProposedAction", "PolicyResult",
     "PolicyEngine", "SessionContext", "SessionStore",
     "GLOBAL_STORE", "GLOBAL_MEDIATOR",
-    "serve_dashboard", "stop_dashboard", "guard_callable", "guard_tools",
+    "serve_dashboard", "stop_dashboard", "guard_callable", "guard_tools", "scan_content",
 ]

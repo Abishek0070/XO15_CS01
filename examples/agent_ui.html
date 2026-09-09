@@ -3,89 +3,213 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>toolgate example agent</title>
+<title>toolgate agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0e1116; --panel: #161b22; --border: #2d333b; --text: #e6edf3; --muted: #8b949e;
-    --accent: #58a6ff; --allow: #3fb950; --deny: #f85149; --escalate: #d29922;
+    --bg: #e6ebf4; --text: #263042; --muted: #6f7a8f; --accent: #5b6cff; --accent-2: #8a97ff;
+    --sd: #c3cad8; --sl: #ffffff;
+    --allow: #22a06b; --deny: #e5484d; --escalate: #e8a317; --allow-glow: rgba(34,160,107,.25);
+    --user-bubble: #dfe4ff;
+    --radius: 22px;
+  }
+  html[data-theme="dark"] {
+    --bg: #1f2431; --text: #e6eaf3; --muted: #8d97ab; --accent: #8593ff; --accent-2: #a5afff;
+    --sd: #151922; --sl: #2b3242;
+    --allow: #3ddc97; --deny: #ff6b6b; --escalate: #ffb547; --allow-glow: rgba(61,220,151,.22);
+    --user-bubble: #2c3352;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; height: 100vh; display: grid; grid-template-columns: minmax(420px, 1fr) 1fr;
-         background: var(--bg); color: var(--text);
-         font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  .left { display: flex; flex-direction: column; border-right: 1px solid var(--border); min-width: 0; }
-  header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 12px; }
-  header h1 { margin: 0; font-size: 16px; }
-  header .sub { color: var(--muted); font-size: 12px; }
-  .controls { padding: 10px 18px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap;
-              gap: 10px 18px; align-items: center; font-size: 12px; }
-  .controls label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
-  .controls .docs { color: var(--muted); flex-basis: 100%; }
-  .controls .docs b { color: var(--text); }
-  button, input[type=file]::file-selector-button {
-    background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
-    padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12px; }
-  button:hover { border-color: var(--accent); }
-  button.primary { background: var(--accent); color: #0e1116; border-color: var(--accent); font-weight: 700; }
-  #log { flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
-  .msg { max-width: 92%; padding: 10px 14px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; }
-  .msg.user { align-self: flex-end; background: #1f3a5f; }
-  .msg.agent { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
-  .msg.error { align-self: flex-start; background: rgba(248,81,73,.12); border: 1px solid var(--deny); color: var(--deny); }
-  .audit { align-self: flex-start; max-width: 92%; font-size: 12px; color: var(--muted);
-           border-left: 2px solid var(--border); padding-left: 10px; }
-  .audit .row { margin: 2px 0; }
-  .badge { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 700; margin-right: 6px; }
-  .badge.ALLOW { background: rgba(63,185,80,.15); color: var(--allow); }
-  .badge.DENY { background: rgba(248,81,73,.15); color: var(--deny); }
-  .badge.ESCALATE { background: rgba(210,153,34,.15); color: var(--escalate); }
-  .audit .reason { color: var(--muted); display: block; padding-left: 4px; }
-  form.compose { display: flex; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); }
-  form.compose input[type=text] { flex: 1; background: var(--panel); color: var(--text); border: 1px solid var(--border);
-                                  border-radius: 6px; padding: 8px 10px; font: inherit; }
-  form.compose input[type=text]:focus { outline: none; border-color: var(--accent); }
-  .right { display: flex; flex-direction: column; min-width: 0; }
-  .right .bar { padding: 8px 14px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); }
-  .right .bar a { color: var(--accent); }
-  iframe { flex: 1; border: 0; width: 100%; background: var(--bg); }
-  .thinking { color: var(--muted); font-style: italic; }
-  @media (max-width: 900px) { body { grid-template-columns: 1fr; grid-template-rows: 1fr 45vh; } .left { border-right: 0; border-bottom: 1px solid var(--border); } }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.55 "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+    transition: background .35s ease, color .35s ease;
+  }
+  code, .mono { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
+  /* --- neumorphic primitives --- */
+  .raised { background: var(--bg); border-radius: var(--radius);
+            box-shadow: 9px 9px 18px var(--sd), -9px -9px 18px var(--sl); }
+  .inset  { background: var(--bg); border-radius: 16px;
+            box-shadow: inset 6px 6px 12px var(--sd), inset -6px -6px 12px var(--sl); }
+  .btn {
+    background: var(--bg); color: var(--text); border: 0; border-radius: 14px; padding: 10px 18px;
+    font: inherit; font-weight: 600; cursor: pointer; transition: all .15s ease;
+    box-shadow: 6px 6px 12px var(--sd), -6px -6px 12px var(--sl);
+  }
+  .btn:hover { transform: translateY(-1px); color: var(--accent); }
+  .btn:active, .btn.pressed { box-shadow: inset 4px 4px 8px var(--sd), inset -4px -4px 8px var(--sl); transform: none; }
+  .btn.primary { color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-2));
+                 box-shadow: 6px 6px 14px var(--sd), -6px -6px 14px var(--sl); }
+  .btn.primary:hover { color: #fff; filter: brightness(1.06); }
+  .btn:disabled { opacity: .55; cursor: wait; transform: none; }
+
+  /* --- layout --- */
+  .app { display: grid; grid-template-rows: auto 1fr; height: 100vh; padding: 18px 22px; gap: 18px; }
+  .topbar { display: flex; align-items: center; gap: 16px; padding: 14px 22px; }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo .mark { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center;
+                font-weight: 800; color: #fff; font-size: 18px;
+                background: linear-gradient(135deg, var(--accent), var(--accent-2));
+                box-shadow: 5px 5px 10px var(--sd), -5px -5px 10px var(--sl); }
+  .logo h1 { margin: 0; font-size: 19px; font-weight: 800; letter-spacing: -.01em; }
+  .logo .sub { color: var(--muted); font-size: 12px; margin-top: 1px; }
+  .spacer { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;
+          font-size: 12px; color: var(--muted); }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--allow);
+               box-shadow: 0 0 0 3px var(--allow-glow); animation: pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  /* theme toggle */
+  .theme { width: 64px; height: 32px; border-radius: 999px; position: relative; cursor: pointer; border: 0; padding: 0;
+           background: var(--bg); box-shadow: inset 4px 4px 8px var(--sd), inset -4px -4px 8px var(--sl); }
+  .theme .knob { position: absolute; top: 4px; left: 4px; width: 24px; height: 24px; border-radius: 50%;
+                 background: var(--bg); box-shadow: 3px 3px 6px var(--sd), -3px -3px 6px var(--sl);
+                 display: grid; place-items: center; font-size: 13px; transition: left .25s ease; }
+  html[data-theme="dark"] .theme .knob { left: 36px; }
+
+  .main { display: grid; grid-template-columns: minmax(440px, 1fr) minmax(380px, 1fr); gap: 20px; min-height: 0; }
+  .panel { display: flex; flex-direction: column; min-height: 0; padding: 18px; }
+  .panel-title { display: flex; align-items: center; gap: 10px; margin: 2px 4px 14px; font-weight: 700; font-size: 13px;
+                 letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .panel-title a { color: var(--accent); text-decoration: none; font-weight: 600; text-transform: none; letter-spacing: 0; margin-left: auto; }
+
+  /* controls */
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 16px; margin-bottom: 14px; }
+  .switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; -webkit-user-select: none; user-select: none; font-size: 13px; }
+  .switch input { display: none; }
+  .switch .track { width: 44px; height: 24px; border-radius: 999px; position: relative;
+                   box-shadow: inset 3px 3px 6px var(--sd), inset -3px -3px 6px var(--sl); transition: background .2s; }
+  .switch .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
+                          background: var(--bg); box-shadow: 2px 2px 4px var(--sd), -2px -2px 4px var(--sl); transition: left .2s; }
+  .switch input:checked + .track { background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: none; }
+  .switch input:checked + .track::after { left: 23px; }
+  .switch code { color: var(--muted); }
+  .file { display: inline-flex; align-items: center; gap: 8px; }
+  .file input { display: none; }
+  .file .name { color: var(--muted); font-size: 12px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .docs { flex-basis: 100%; color: var(--muted); font-size: 12px; padding: 0 4px; }
+  .docs b { color: var(--text); }
+
+  /* chat */
+  #log { flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .msg { max-width: 88%; padding: 12px 16px; border-radius: 18px; white-space: pre-wrap; word-break: break-word; line-height: 1.55; }
+  .msg.agent { align-self: flex-start; box-shadow: 6px 6px 12px var(--sd), -6px -6px 12px var(--sl); border-bottom-left-radius: 6px; }
+  .msg.user  { align-self: flex-end; background: var(--user-bubble); border-bottom-right-radius: 6px;
+               box-shadow: 6px 6px 12px var(--sd), -6px -6px 12px var(--sl); }
+  .msg.error { align-self: flex-start; color: var(--deny); box-shadow: inset 4px 4px 8px var(--sd), inset -4px -4px 8px var(--sl); }
+  .msg.thinking { color: var(--muted); font-style: italic; }
+  .msg.thinking::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%;
+                         background: var(--accent); animation: pulse 1s infinite; vertical-align: middle; }
+  .audit { align-self: flex-start; max-width: 88%; padding: 12px 14px; font-size: 12px; color: var(--muted); }
+  .audit .row { display: grid; grid-template-columns: auto 1fr; gap: 8px 10px; align-items: start; padding: 6px 0; }
+  .audit .row + .row { border-top: 1px solid var(--sd); }
+  .audit .reason { grid-column: 2; color: var(--muted); }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .04em;
+           box-shadow: inset 2px 2px 4px var(--sd), inset -2px -2px 4px var(--sl); }
+  .badge.ALLOW    { color: var(--allow); }
+  .badge.DENY     { color: var(--deny); }
+  .badge.ESCALATE { color: var(--escalate); }
+  .badge.FLAG     { color: var(--accent); }
+
+  form.compose { display: flex; gap: 12px; margin-top: 14px; align-items: center; }
+  form.compose .inputwrap { flex: 1; padding: 4px 6px; }
+  form.compose input[type=text] { width: 100%; background: transparent; color: var(--text); border: 0; padding: 10px 12px; font: inherit; }
+  form.compose input[type=text]:focus { outline: none; }
+  form.compose input::placeholder { color: var(--muted); }
+
+  /* dashboard embed */
+  .frame { flex: 1; padding: 10px; min-height: 0; }
+  iframe { width: 100%; height: 100%; border: 0; border-radius: 14px; background: var(--bg); }
+
+  @media (max-width: 980px) {
+    .main { grid-template-columns: 1fr; grid-template-rows: 1fr 45vh; }
+    .app { height: auto; min-height: 100vh; }
+  }
 </style>
 </head>
 <body>
-<section class="left">
-  <header>
-    <h1>toolgate example agent</h1>
-    <span class="sub">LangChain agent &middot; __MODEL__ &middot; every tool call authorized by toolgate</span>
+<div class="app">
+  <header class="topbar raised">
+    <div class="logo">
+      <div class="mark">t</div>
+      <div>
+        <h1>toolgate agent</h1>
+        <div class="sub">LangChain agent &middot; <span class="mono">__MODEL__</span> &middot; every tool call authorized by toolgate</div>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <span class="pill inset"><span class="dot"></span> security layer active</span>
+    <button class="theme" id="theme" type="button" aria-label="toggle dark mode"><span class="knob" id="knob">☀️</span></button>
   </header>
 
-  <div class="controls">
-    <span>User-granted scope:</span>
-    <label><input type="checkbox" id="scope-web" checked> web scraping <code>get:external_api</code></label>
-    <label><input type="checkbox" id="scope-doc" checked> document reading <code>read:file_ops</code></label>
-    <input type="file" id="file" accept=".txt,.md,.pdf,.csv,.json,.html,.py">
-    <button id="upload">Upload</button>
-    <button id="reset">New conversation</button>
-    <span class="docs">Uploaded documents: <b id="docs">none</b></span>
+  <div class="main">
+    <section class="panel raised">
+      <div class="panel-title">Conversation</div>
+
+      <div class="controls inset">
+        <label class="switch"><input type="checkbox" id="scope-web" checked><span class="track"></span>
+          web scraping <code>get:external_api</code></label>
+        <label class="switch"><input type="checkbox" id="scope-doc" checked><span class="track"></span>
+          document reading <code>read:file_ops</code></label>
+        <span class="spacer"></span>
+        <label class="file btn">
+          <input type="file" id="file" accept=".txt,.md,.pdf,.csv,.json,.html,.py">
+          📎 Choose file <span class="name" id="filename"></span>
+        </label>
+        <button class="btn" id="upload" type="button">Upload</button>
+        <button class="btn" id="reset" type="button">New conversation</button>
+        <div class="docs">Uploaded documents: <b id="docs">none</b></div>
+      </div>
+
+      <div id="log" class="inset">
+        <div class="msg agent">Hi. I can scrape a web page (give me a URL) or summarize a document you upload above.
+Turn off a scope switch to watch toolgate block or escalate the matching tool.</div>
+      </div>
+
+      <form class="compose" id="compose">
+        <div class="inputwrap inset">
+          <input type="text" id="input" placeholder="e.g. Summarize https://example.com   or   Summarize report.pdf" autocomplete="off">
+        </div>
+        <button class="btn primary" type="submit" id="send">Send ↗</button>
+      </form>
+    </section>
+
+    <section class="panel raised">
+      <div class="panel-title">toolgate audit UI
+        <a href="http://127.0.0.1:__DASHBOARD_PORT__" target="_blank" rel="noopener">open in new tab ↗</a></div>
+      <div class="frame inset">
+        <iframe id="dash" src="http://127.0.0.1:__DASHBOARD_PORT__" title="toolgate dashboard"></iframe>
+      </div>
+    </section>
   </div>
-
-  <div id="log">
-    <div class="msg agent">Hi. I can scrape a web page (give me a URL) or summarize a document you upload above.
-Untick a scope box to see toolgate block or escalate the matching tool.</div>
-  </div>
-
-  <form class="compose" id="compose">
-    <input type="text" id="input" placeholder="e.g. Summarize https://example.com   or   Summarize report.pdf" autocomplete="off">
-    <button class="primary" type="submit" id="send">Send</button>
-  </form>
-</section>
-
-<section class="right">
-  <div class="bar">toolgate audit UI &mdash; <a href="http://127.0.0.1:__DASHBOARD_PORT__" target="_blank">open in a new tab</a></div>
-  <iframe src="http://127.0.0.1:__DASHBOARD_PORT__" title="toolgate dashboard"></iframe>
-</section>
+</div>
 
 <script>
+// ---------- theme ----------
+const DASH = 'http://127.0.0.1:__DASHBOARD_PORT__';
+function currentTheme() {
+  const q = new URLSearchParams(location.search).get('theme');
+  if (q === 'dark' || q === 'light') return q;
+  try { const t = localStorage.getItem('toolgate-theme'); if (t) return t; } catch (e) {}
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('knob').textContent = t === 'dark' ? '🌙' : '☀️';
+  try { localStorage.setItem('toolgate-theme', t); } catch (e) {}
+  const f = document.getElementById('dash');
+  const want = DASH + '/?embed=1&theme=' + t;   // embed=1: dashboard hides its own toggle
+  if (f.getAttribute('src') !== want) f.setAttribute('src', want);
+}
+applyTheme(currentTheme());
+document.getElementById('theme').addEventListener('click', () =>
+  applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
+
+// ---------- chat ----------
 const log = document.getElementById('log');
 const input = document.getElementById('input');
 const send = document.getElementById('send');
@@ -102,20 +226,20 @@ function add(cls, text) {
 function addAudit(entries) {
   if (!entries.length) return;
   const box = document.createElement('div');
-  box.className = 'audit';
+  box.className = 'audit inset';
   for (const e of entries) {
     const row = document.createElement('div');
     row.className = 'row';
     const badge = document.createElement('span');
     badge.className = 'badge ' + e.decision;
     badge.textContent = e.decision;
-    row.appendChild(badge);
-    row.appendChild(document.createTextNode(
-      `${e.tool}(${JSON.stringify(e.params)})  rule=${e.rule}  risk=${e.risk_after}`));
+    const what = document.createElement('span');
+    what.className = 'mono';
+    what.textContent = `${e.tool}(${JSON.stringify(e.params)})  rule=${e.rule}  risk=${e.risk_after}`;
     const reason = document.createElement('span');
     reason.className = 'reason';
     reason.textContent = e.reason;
-    row.appendChild(reason);
+    row.append(badge, what, reason);
     box.appendChild(row);
   }
   log.appendChild(box);
@@ -130,9 +254,11 @@ function scope() {
 }
 
 async function refreshDocs() {
-  const r = await fetch('/documents');
-  const j = await r.json();
-  document.getElementById('docs').textContent = j.documents.length ? j.documents.join(', ') : 'none';
+  try {
+    const r = await fetch('/documents');
+    const j = await r.json();
+    document.getElementById('docs').textContent = j.documents.length ? j.documents.join(', ') : 'none';
+  } catch (e) {}
 }
 
 document.getElementById('compose').addEventListener('submit', async (ev) => {
@@ -141,7 +267,7 @@ document.getElementById('compose').addEventListener('submit', async (ev) => {
   if (!message) return;
   input.value = '';
   add('user', message);
-  const pending = add('agent thinking', 'working…');
+  const pending = add('agent thinking', 'working');
   send.disabled = true;
   try {
     const r = await fetch('/chat', {
@@ -160,6 +286,11 @@ document.getElementById('compose').addEventListener('submit', async (ev) => {
     send.disabled = false;
     input.focus();
   }
+});
+
+document.getElementById('file').addEventListener('change', (ev) => {
+  const f = ev.target.files[0];
+  document.getElementById('filename').textContent = f ? f.name : '';
 });
 
 document.getElementById('upload').addEventListener('click', async () => {

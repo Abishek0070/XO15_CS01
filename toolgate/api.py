@@ -173,6 +173,7 @@ def get_audit(session_id: str):
         "audit_log": [
             {
                 "action_id": e.action.action_id,
+                "tool_name": e.action.tool_name,
                 "tool": f"{e.action.tool_category.value}.{e.action.operation}",
                 "params": e.action.raw_params(),
                 "directive_source": e.action.directive_provenance.source.name,
@@ -212,16 +213,19 @@ def audit_recent(limit: int = 200):
     """Aggregated decision feed across ALL sessions in this process —
     what the dashboard polls."""
     entries = []
-    counts = {"ALLOW": 0, "DENY": 0, "ESCALATE": 0}
+    counts = {"ALLOW": 0, "DENY": 0, "ESCALATE": 0, "FLAG": 0}
     sessions = store.all()
     for ctx in sessions:
         for e in ctx.audit_log:
             counts[e.result.decision.value] = counts.get(e.result.decision.value, 0) + 1
+            if e.result.rule == "R8-output-quarantine":
+                counts["FLAG"] += 1   # injections caught; these are also counted under DENY
             entries.append({
                 "time": e.action.timestamp.strftime("%H:%M:%S"),
                 "ts": e.action.timestamp.timestamp(),
                 "session_id": ctx.session_id,
                 "intent": ctx.user_intent,
+                "tool_name": e.action.tool_name,
                 "tool": f"{e.action.tool_category.value}.{e.action.operation}",
                 "decision": e.result.decision.value,
                 "rule": e.result.rule,
@@ -230,6 +234,7 @@ def audit_recent(limit: int = 200):
                 "effects": e.result.effects,
                 "chain": e.result.chain,
                 "phase": ctx.phase,
+                "tainted": ctx.tainted,
                 "context_version": e.result.context_version,
                 "reused_grant": e.result.reused_grant,
                 "stale_grant": e.result.stale_grant,

@@ -29,6 +29,13 @@ Design of the rule set (evaluated in order, first conclusive rule wins):
       to include in a message the user asked to send) but never a new
       *directive* to act.
 
+  R1b Untrusted directive, sensitive action
+      Even INSIDE declared scope: if the directive is untrusted (labelled,
+      or auto-downgraded in a tainted session) and the action reads
+      sensitive/credential data, sends externally, executes, writes or
+      destroys => DENY. "read:file_ops" lets the user read files; it does
+      not let a web page make the agent read hr/salaries.csv.
+
   R2  Scope rule
       Is the action within declared_scope? Clean match => continue to risk
       rules. Ambiguous / no direct match => consult LLM for semantic
@@ -75,6 +82,12 @@ Design of the rule set (evaluated in order, first conclusive rule wins):
                                                         an exfil chain)
       Only actions that actually ran count toward the chain: a DENY'd or
       still-pending ESCALATE'd step moved no data.
+
+  R8  Output quarantine (enforced by the adapters, after execution)
+      R0-R7 authorize the CALL. R8 authorizes the OUTPUT. When a tool's
+      result contains a suspected prompt injection, the result is not
+      returned to the model; the call's audit entry becomes DENY and
+      the model only sees the denial notice. See integrations/generic.py.
 """
 from __future__ import annotations
 from typing import Optional
@@ -171,6 +184,9 @@ def action_effects(action: ProposedAction) -> set[str]:
         eff.add("write")
     return eff
 
+
+# Effects an untrusted directive may never trigger, even inside declared scope (R1b).
+SENSITIVE_EFFECTS = {"read_sensitive", "read_credential", "send_external", "exec", "destroy", "write"}
 
 # (prior effect already in the session, effect of the proposed action,
 #  pattern name, scope tag that pre-authorizes the COMBINED effect, severity bump)
@@ -277,6 +293,29 @@ class PolicyEngine:
                 ),
                 rule="R1-directive-authority",
                 risk_delta=0.0,
+            )
+
+        # --- R1b: untrusted directive targeting something sensitive ---------------
+        # Being "in scope" means the USER may do this. It does not mean a web
+        # page or document may make the agent do it. If the instruction comes
+        # from untrusted content (explicitly labelled, or auto-downgraded
+        # because the session is tainted) and the action reaches sensitive
+        # data, leaves the organisation, executes, writes or destroys, deny.
+        # Plain reads of non-sensitive data are still fine — untrusted content
+        # may point the agent at data, just not at secrets.
+        sensitive_hit = effects & SENSITIVE_EFFECTS
+        if not directive_source.can_grant_authority and sensitive_hit:
+            return PolicyResult(
+                decision=Decision.DENY,
+                reason=(
+                    f"The instruction to perform '{action.operation}' on {action.tool_name} "
+                    f"comes from an untrusted source ({directive_source.name}"
+                    f"{': ' + action.directive_provenance.origin_id if action.directive_provenance.origin_id else ''}) "
+                    f"and the action is sensitive ({', '.join(sorted(sensitive_hit))}). The user's scope "
+                    f"{sorted(ctx.declared_scope)} authorizes the USER to do this, not content the agent read."
+                ),
+                rule="R1b-untrusted-sensitive",
+                risk_delta=1.0,
             )
 
         # --- R2: scope rule (ambiguous case -> consult LLM) ---------------------------

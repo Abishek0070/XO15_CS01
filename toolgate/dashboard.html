@@ -4,83 +4,152 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>toolgate — decision dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0e1116; --panel: #161b22; --border: #2d333b;
-    --text: #e6edf3; --muted: #8b949e;
-    --allow: #3fb950; --deny: #f85149; --escalate: #d29922;
+    --bg: #e6ebf4; --text: #263042; --muted: #6f7a8f; --accent: #5b6cff; --accent-2: #8a97ff;
+    --sd: #c3cad8; --sl: #ffffff;
+    --allow: #22a06b; --deny: #e5484d; --escalate: #e8a317; --allow-glow: rgba(34,160,107,.25);
+    --radius: 20px;
+  }
+  html[data-theme="dark"] {
+    --bg: #1f2431; --text: #e6eaf3; --muted: #8d97ab; --accent: #8593ff; --accent-2: #a5afff;
+    --sd: #151922; --sl: #2b3242;
+    --allow: #3ddc97; --deny: #ff6b6b; --escalate: #ffb547; --allow-glow: rgba(61,220,151,.22);
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
-         font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  header { display: flex; align-items: baseline; gap: 14px; padding: 18px 24px;
-           border-bottom: 1px solid var(--border); }
-  header h1 { font-size: 18px; margin: 0; }
-  header .sub { color: var(--muted); font-size: 12px; }
-  .counters { display: flex; gap: 12px; padding: 16px 24px; flex-wrap: wrap; }
-  .counter { background: var(--panel); border: 1px solid var(--border);
-             border-radius: 8px; padding: 10px 18px; min-width: 130px; }
-  .counter .n { font-size: 26px; font-weight: 700; }
-  .counter .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+         font: 14px/1.55 "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+         transition: background .35s ease, color .35s ease; }
+  .mono { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
+  .raised { background: var(--bg); border-radius: var(--radius);
+            box-shadow: 9px 9px 18px var(--sd), -9px -9px 18px var(--sl); }
+  .inset  { background: var(--bg); border-radius: 16px;
+            box-shadow: inset 5px 5px 10px var(--sd), inset -5px -5px 10px var(--sl); }
+  .btn { background: var(--bg); color: var(--text); border: 0; border-radius: 14px; padding: 9px 16px;
+         font: inherit; font-weight: 600; cursor: pointer; transition: all .15s ease;
+         box-shadow: 6px 6px 12px var(--sd), -6px -6px 12px var(--sl); }
+  .btn:hover { transform: translateY(-1px); color: var(--deny); }
+  .btn:active { box-shadow: inset 4px 4px 8px var(--sd), inset -4px -4px 8px var(--sl); transform: none; }
+
+  .page { padding: 18px 20px 40px; display: flex; flex-direction: column; gap: 18px; }
+  header { display: flex; align-items: center; gap: 14px; padding: 14px 20px; }
+  header .mark { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; color: #fff; font-weight: 800;
+                 background: linear-gradient(135deg, var(--accent), var(--accent-2));
+                 box-shadow: 5px 5px 10px var(--sd), -5px -5px 10px var(--sl); }
+  header h1 { margin: 0; font-size: 18px; font-weight: 800; }
+  header .sub { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--allow);
+         box-shadow: 0 0 0 3px var(--allow-glow); animation: pulse 2s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .spacer { flex: 1; }
+  .theme { width: 60px; height: 30px; border-radius: 999px; position: relative; cursor: pointer; border: 0; padding: 0;
+           background: var(--bg); box-shadow: inset 4px 4px 8px var(--sd), inset -4px -4px 8px var(--sl); }
+  .theme .knob { position: absolute; top: 4px; left: 4px; width: 22px; height: 22px; border-radius: 50%; font-size: 12px;
+                 background: var(--bg); box-shadow: 3px 3px 6px var(--sd), -3px -3px 6px var(--sl);
+                 display: grid; place-items: center; transition: left .25s ease; }
+  html[data-theme="dark"] .theme .knob { left: 34px; }
+
+  .counters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; }
+  .counter { padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; }
+  .counter .n { font-size: 30px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .counter .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; }
   .counter.allow .n { color: var(--allow); }
   .counter.deny .n { color: var(--deny); }
   .counter.escalate .n { color: var(--escalate); }
-  main { padding: 0 24px 40px; }
-  table { width: 100%; border-collapse: collapse; background: var(--panel);
-          border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border);
-           vertical-align: top; }
-  th { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
-  tr:last-child td { border-bottom: none; }
-  .badge { display: inline-block; padding: 1px 9px; border-radius: 999px;
-           font-size: 11px; font-weight: 700; }
-  .badge.ALLOW    { background: rgba(63,185,80,.15);  color: var(--allow); }
-  .badge.DENY     { background: rgba(248,81,73,.15);  color: var(--deny); }
-  .badge.ESCALATE { background: rgba(210,153,34,.15); color: var(--escalate); }
-  .reason { color: var(--muted); font-size: 12px; max-width: 520px; }
+  .counter.sessions .n { color: var(--accent); }
+
+  .tablewrap { padding: 8px 10px; overflow-x: auto; }
+  table { width: 100%; border-collapse: separate; border-spacing: 0; }
+  th, td { text-align: left; padding: 12px 14px; vertical-align: top; }
+  th { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; white-space: nowrap; }
+  tbody tr td { border-top: 1px solid var(--sd); }
+  tbody tr:hover td { background: var(--sl); }
+  tbody tr:first-child td { border-top: 0; }
+  tbody tr:first-child td:first-child { border-top-left-radius: 12px; }
+  tbody tr:first-child td:last-child { border-top-right-radius: 12px; }
+  .badge { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .05em;
+           box-shadow: inset 2px 2px 4px var(--sd), inset -2px -2px 4px var(--sl); }
+  .badge.ALLOW    { color: var(--allow); }
+  .badge.DENY     { color: var(--deny); }
+  .badge.ESCALATE { color: var(--escalate); }
+  .badge.FLAG     { color: var(--accent); }
+  .counter.flag .n { color: var(--accent); }
+  .sid .tainted { color: var(--deny); font-weight: 700; }
+  .reason { color: var(--muted); font-size: 12px; max-width: 520px; min-width: 260px; }
+  .sid { color: var(--muted); font-size: 11px; }
+  .sid .id { font-weight: 700; color: var(--text); }
   .effects { color: var(--muted); font-size: 12px; white-space: nowrap; }
   .effects .chain { color: var(--escalate); font-weight: 700; }
   .reason .stale { color: var(--escalate); font-weight: 700; }
   .reason .reused { color: var(--allow); font-weight: 700; }
-  .sid { color: var(--muted); font-size: 11px; }
-  .risk { font-variant-numeric: tabular-nums; }
-  .risk.normal { color: var(--allow); } .risk.elevated { color: var(--escalate); }
-  .risk.critical { color: var(--deny); }
-  .empty { color: var(--muted); padding: 40px; text-align: center; }
-  .dot { display:inline-block; width:8px; height:8px; border-radius:50%;
-         background: var(--allow); margin-right:6px; animation: pulse 2s infinite; }
-  @keyframes pulse { 50% { opacity:.3; } }
-  header .clear-btn { margin-left: auto; background: var(--panel); color: var(--text);
-    border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px;
-    cursor: pointer; font: inherit; font-size: 12px; }
-  header .clear-btn:hover { border-color: var(--deny); color: var(--deny); }
+  .risk { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .risk.normal { color: var(--allow); } .risk.elevated { color: var(--escalate); } .risk.critical { color: var(--deny); }
+  .empty { color: var(--muted); padding: 48px; text-align: center; }
+  body.embed .page { padding: 12px; gap: 12px; }
+  body.embed header { padding: 10px 14px; }
+  body.embed header .mark { display: none; }
+  body.embed .counter { padding: 12px 16px; }
+  body.embed .counter .n { font-size: 24px; }
 </style>
 </head>
 <body>
-<header>
-  <h1><span class="dot"></span>toolgate</h1>
-  <span class="sub">live authorization decisions &mdash; polling every 1.5s</span>
-  <button id="clear-btn" type="button" class="clear-btn">Clear log</button>
-</header>
+<div class="page">
+  <header class="raised">
+    <div class="mark">t</div>
+    <div>
+      <h1>toolgate</h1>
+      <div class="sub"><span class="dot"></span> live authorization decisions &mdash; polling every 1.5s</div>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn" id="clear-btn" type="button">Clear log</button>
+    <button class="theme" id="theme" type="button" aria-label="toggle dark mode"><span class="knob" id="knob">☀️</span></button>
+  </header>
 
-<div class="counters">
-  <div class="counter allow"><div class="n" id="c-allow">0</div><div class="l">Allowed</div></div>
-  <div class="counter deny"><div class="n" id="c-deny">0</div><div class="l">Denied</div></div>
-  <div class="counter escalate"><div class="n" id="c-escalate">0</div><div class="l">Escalated</div></div>
-  <div class="counter"><div class="n" id="c-sessions">0</div><div class="l">Sessions</div></div>
+  <div class="counters">
+    <div class="counter raised allow"><div class="n" id="c-allow">0</div><div class="l">Allowed</div></div>
+    <div class="counter raised deny"><div class="n" id="c-deny">0</div><div class="l">Denied</div></div>
+    <div class="counter raised escalate"><div class="n" id="c-escalate">0</div><div class="l">Escalated</div></div>
+    <div class="counter raised flag"><div class="n" id="c-flag">0</div><div class="l">Injections flagged</div></div>
+    <div class="counter raised sessions"><div class="n" id="c-sessions">0</div><div class="l">Sessions</div></div>
+  </div>
+
+  <div class="tablewrap raised">
+    <table>
+      <thead>
+        <tr><th>Time</th><th>Session</th><th>Tool</th><th>Decision</th><th>Rule</th>
+            <th>Directive src</th><th>Effect / chain</th><th>Risk</th><th>Reason</th></tr>
+      </thead>
+      <tbody id="rows"><tr><td colspan="9" class="empty">Waiting for decisions…</td></tr></tbody>
+    </table>
+  </div>
 </div>
 
-<main>
-  <table>
-    <thead>
-      <tr><th>Time</th><th>Session</th><th>Tool</th><th>Decision</th><th>Rule</th>
-          <th>Directive src</th><th>Effect / chain</th><th>Risk</th><th>Reason</th></tr>
-    </thead>
-    <tbody id="rows"><tr><td colspan="9" class="empty">Waiting for decisions…</td></tr></tbody>
-  </table>
-</main>
-
 <script>
+// ---------- theme: ?theme= from the embedding page wins, then saved choice, then OS ----------
+function currentTheme() {
+  const q = new URLSearchParams(location.search).get('theme');
+  if (q === 'dark' || q === 'light') return q;
+  try { const t = localStorage.getItem('toolgate-theme'); if (t) return t; } catch (e) {}
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('knob').textContent = t === 'dark' ? '🌙' : '☀️';
+  try { localStorage.setItem('toolgate-theme', t); } catch (e) {}
+}
+applyTheme(currentTheme());
+document.getElementById('theme').addEventListener('click', () =>
+  applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
+if (new URLSearchParams(location.search).get('embed') === '1') {
+  // embedded in the agent UI, which owns the theme switch and the page chrome
+  document.getElementById('theme').hidden = true;
+  document.body.classList.add('embed');
+}
+
+// ---------- data ----------
 async function refresh() {
   try {
     const r = await fetch('/audit/recent?limit=200');
@@ -88,17 +157,21 @@ async function refresh() {
     document.getElementById('c-allow').textContent = data.counts.ALLOW || 0;
     document.getElementById('c-deny').textContent = data.counts.DENY || 0;
     document.getElementById('c-escalate').textContent = data.counts.ESCALATE || 0;
+    document.getElementById('c-flag').textContent = data.counts.FLAG || 0;
     document.getElementById('c-sessions').textContent = data.session_count;
 
     const tbody = document.getElementById('rows');
-    if (!data.entries.length) return;
+    if (!data.entries.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="empty">Waiting for decisions…</td></tr>';
+      return;
+    }
     tbody.innerHTML = data.entries.map(e => `
       <tr>
-        <td>${e.time}</td>
-        <td class="sid">${e.session_id} · ctx v${e.context_version ?? 0}${e.phase && e.phase !== 'default' ? ' · ' + esc(e.phase) : ''}<br>${esc(e.intent).slice(0, 42)}</td>
-        <td>${esc(e.tool)}</td>
+        <td class="mono">${e.time}</td>
+        <td class="sid"><span class="id mono">${e.session_id}</span> · ctx v${e.context_version ?? 0}${e.phase && e.phase !== 'default' ? ' · ' + esc(e.phase) : ''}${e.tainted ? ' · <span class="tainted">☣ tainted</span>' : ''}<br>${esc(e.intent).slice(0, 42)}</td>
+        <td class="mono"><b>${esc(e.tool_name || e.tool)}</b>${e.tool_name ? `<br><span class="sid">${esc(e.tool)}</span>` : ''}</td>
         <td><span class="badge ${e.decision}">${e.decision}</span></td>
-        <td>${esc(e.rule)}</td>
+        <td class="mono">${esc(e.rule)}</td>
         <td>${esc(e.directive_source)}</td>
         <td class="effects">${(e.effects || []).map(esc).join(', ')}${e.chain ? `<br><span class="chain">⛓ ${esc(e.chain)}</span>` : ''}</td>
         <td class="risk ${e.risk_state}">${e.session_risk_after.toFixed(1)}</td>

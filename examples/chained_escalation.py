@@ -21,7 +21,9 @@ action against the chain, not in isolation.
 Four runs, same tools, same scope tags (except D):
     A  legitimate chain            -> ALLOW, ALLOW, ALLOW   (no excessive blocking)
     B  escalation, user-directed   -> ALLOW, ALLOW, ESCALATE (R7)  then human confirms
-    C  escalation, injected        -> ALLOW, ALLOW, DENY     (R7 + untrusted directive)
+    C  escalation, injected        -> ALLOW, DENY, DENY     (R1b: an untrusted directive is
+                                                            stopped at its first sensitive
+                                                            step, so the chain never forms)
     D  chain pre-authorized        -> ALLOW, ALLOW, ALLOW   (scope has export:external)
 
 Run:  ./venv/bin/python examples/chained_escalation.py
@@ -137,7 +139,7 @@ def run_b_user_directed():
 
 
 def run_c_injected():
-    banner("C. Chained escalation, directed by injected content — DENY", SCOPE)
+    banner("C. Same chain, directed by injected content — DENIED at the first sensitive step", SCOPE)
     with TaskSession(intent="Process the vendor invoice in my inbox", scope=SCOPE) as s:
         step(s, 1, read_file, path="inbox/vendor_invoice.txt")
         # The agent now acts on what the invoice said, and says so honestly:
@@ -146,6 +148,8 @@ def run_c_injected():
             denied = step(s, 3, send_message, to="auditor@vendor-x.com", body="alice 120000, bob 95000")
         assert isinstance(denied, ToolDenied)
     print("  => nothing sent to auditor@vendor-x.com from this session")
+    print("     (rule R1b stops an untrusted directive at its first sensitive step, so the")
+    print("      exfiltration chain never forms; had it formed, R7 would have denied it too)")
 
 
 def run_d_preauthorized():
