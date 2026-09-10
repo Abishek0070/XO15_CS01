@@ -163,6 +163,58 @@ def scan_content(text: str, origin: str, category: str | ToolCategory = ToolCate
                        action=getattr(sess, "_current_action", None))
 
 
+def escalate_call(reason: str, *, origin: str | None = None,
+                  category: str | ToolCategory = ToolCategory.FILE_OPS) -> None:
+    """For a tool that has decided it CANNOT safely complete on its own:
+    the content it read is ambiguous or under-specified (a document says
+    "send the money to Bala" but names three Balas; an amount is missing;
+    two passages contradict each other). Call this from inside the tool
+    body. The enclosing guarded call's audit entry becomes ESCALATE
+    (rule "tool-escalation") and ToolEscalated is raised out of the tool,
+    so a human is asked instead of the agent guessing.
+
+        def summarize_document(name):
+            text = read(name)
+            toolgate.scan_content(text, origin=name)
+            if looks_ambiguous(text):
+                toolgate.escalate_call("Document names three people called Bala; "
+                                       "recipient cannot be resolved", origin=name)
+            return llm.summarize(text)
+
+    This never changes what the policy engine decided about the CALL (it
+    was authorized, and ran). It records that the tool itself asked for a
+    human decision. The escalation has no bound retry: once the human has
+    clarified, the agent simply calls the tool again."""
+    from ..models import AuditEntry, Decision, PolicyResult
+    sess = current_session()
+    origin = origin or "tool"
+    action = getattr(sess, "_current_action", None)
+    full_reason = f"{origin}: {reason}" if origin != "tool" else reason
+
+    entry = next((e for e in reversed(sess.ctx.audit_log) if action is not None and e.action is action), None)
+    if entry is not None:
+        prev = entry.result
+        entry.result = PolicyResult(
+            decision=Decision.ESCALATE, rule="tool-escalation", reason=full_reason,
+            risk_delta=prev.risk_delta + 0.5, llm_consulted=prev.llm_consulted,
+            effects=prev.effects, context_version=prev.context_version,
+        )
+        sess.ctx.cumulative_risk += 0.5
+        entry.session_risk_after = sess.ctx.cumulative_risk
+        raise ToolEscalated(entry.action, entry.result)
+
+    # Not inside a guard_callable-wrapped call: record a standalone ESCALATE.
+    event = ProposedAction(
+        session_id=sess.ctx.session_id, tool_category=ToolCategory(category), tool_name=origin,
+        operation="content_review", params={},
+        directive_provenance=sess.current_directive(),
+    )
+    verdict = PolicyResult(decision=Decision.ESCALATE, rule="tool-escalation", reason=full_reason,
+                           risk_delta=0.5, context_version=sess.ctx.context_version)
+    sess.ctx.record(AuditEntry(action=event, result=verdict, session_risk_after=sess.ctx.cumulative_risk))
+    raise ToolEscalated(event, verdict)
+
+
 def _effective_directive(sess: TaskSession) -> ProvenanceTag:
     """If the developer explicitly declared a directive (acting_on...),
     respect it. Otherwise, in a tainted session, the default USER

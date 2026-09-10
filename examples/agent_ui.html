@@ -162,6 +162,7 @@
         </label>
         <button class="btn" id="upload" type="button">Upload</button>
         <button class="btn" id="reset" type="button">New conversation</button>
+        <button class="btn" id="clear-docs" type="button">Clear documents</button>
         <div class="docs">Uploaded documents: <b id="docs">none</b></div>
       </div>
 
@@ -302,6 +303,21 @@ document.getElementById('upload').addEventListener('click', async () => {
   const j = await r.json();
   if (!r.ok) { add('error', j.detail || 'upload failed'); return; }
   add('agent', `Uploaded ${j.saved}. Ask me to summarize it.`);
+  refreshDocs();
+});
+
+document.getElementById('clear-docs').addEventListener('click', async () => {
+  if (!confirm('Delete all uploaded documents from the server?')) return;
+  try {
+    const r = await fetch('/documents', {method: 'DELETE'});
+    const j = await r.json();
+    if (!r.ok) { add('error', j.detail || 'clear failed'); return; }
+    add('agent', j.removed.length ? `Removed ${j.removed.length} document(s): ${j.removed.join(', ')}.` : 'No documents to remove.');
+  } catch (e) {
+    add('error', String(e));
+  }
+  document.getElementById('file').value = '';
+  document.getElementById('filename').textContent = '';
   refreshDocs();
 });
 

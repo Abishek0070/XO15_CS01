@@ -13,18 +13,30 @@ and framework adapters all appear with no extra wiring.
 from __future__ import annotations
 
 import threading
-from typing import Optional
+from typing import Any, Optional
 
-import uvicorn
-
-_server: Optional[uvicorn.Server] = None
+# uvicorn / FastAPI are only needed when the dashboard is actually started,
+# so they are imported lazily. `import toolgate` stays dependency-free.
+_server: Optional[Any] = None          # uvicorn.Server once running
 _thread: Optional[threading.Thread] = None
+
+
+def _require_uvicorn():
+    try:
+        import uvicorn
+    except ImportError as e:  # pragma: no cover
+        raise ImportError(
+            "The ToolGate dashboard needs the optional dashboard dependencies: "
+            "pip install 'toolgate-sdk[dashboard]'"
+        ) from e
+    return uvicorn
 
 
 def serve_dashboard(host: str = "127.0.0.1", port: int = 8000, *, background: bool = True):
     """Start the toolgate dashboard. background=True (default) runs it in
     a daemon thread and returns immediately; background=False blocks."""
     global _server, _thread
+    uvicorn = _require_uvicorn()
     from .api import app  # deferred: importing api pulls FastAPI
 
     config = uvicorn.Config(app, host=host, port=port, log_level="warning")

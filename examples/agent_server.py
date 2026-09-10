@@ -50,6 +50,18 @@ def documents():
     return {"documents": list_uploaded_documents()}
 
 
+@app.delete("/documents")
+def clear_documents():
+    """Delete every uploaded file. Only regular files directly inside
+    UPLOAD_DIR are touched; the directory itself is kept."""
+    removed = []
+    for path in UPLOAD_DIR.iterdir():
+        if path.is_file():
+            path.unlink()
+            removed.append(path.name)
+    return {"removed": sorted(removed), "documents": list_uploaded_documents()}
+
+
 @app.post("/upload")
 async def upload(file: UploadFile):
     name = Path(file.filename or "").name

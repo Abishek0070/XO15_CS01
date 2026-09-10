@@ -3,36 +3,58 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-toolgate"
-version = "0.1.0"
-description = "Adaptive authorization mediation layer between AI agents and their tools: every tool call gets ALLOW / DENY / ESCALATE based on instruction provenance, declared scope, and session-level cumulative risk."
+name = "toolgate-sdk"
+dynamic = ["version"]
+description = "ToolGate — AI Agent Security & Authorization SDK. Every tool call an agent makes gets ALLOW / DENY / ESCALATE based on instruction provenance, declared scope, and session-level cumulative risk."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "X'O Code 2026 — PS01 team" }]
-keywords = ["ai-agents", "security", "authorization", "prompt-injection", "tool-calling", "llm"]
+authors = [{ name = "ToolGate team" }]
+keywords = [
+    "ai-agents", "agent-security", "authorization", "prompt-injection",
+    "tool-calling", "llm", "langchain", "guardrails",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "Topic :: Security",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
 ]
-dependencies = [
-    "fastapi>=0.110",
-    "uvicorn[standard]>=0.29",
-    "pydantic>=2",
-]
+# The core SDK is dependency-free. Everything else is an extra.
+dependencies = []
 
 [project.optional-dependencies]
-llm = ["anthropic>=0.40", "groq>=0.30"]
+dashboard = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "pydantic>=2"]
+llm = ["groq>=0.30", "anthropic>=0.40"]
 langchain = ["langchain-core>=0.2"]
-dev = ["httpx", "pytest"]
+all = ["toolgate-sdk[dashboard,llm,langchain]"]
+dev = ["build", "twine", "httpx"]
+
+[project.urls]
+Homepage = "https://github.com/Abishek0070/XO15_CS01"
+Documentation = "https://github.com/Abishek0070/XO15_CS01#readme"
+Changelog = "https://github.com/Abishek0070/XO15_CS01/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Abishek0070/XO15_CS01/issues"
 
 [project.scripts]
+# Requires the [dashboard] extra.
 toolgate-dashboard = "toolgate.api:main"
 
 [tool.setuptools]
 packages = ["toolgate", "toolgate.tools", "toolgate.integrations"]
+license-files = ["LICENSE"]
+
+[tool.setuptools.dynamic]
+version = { attr = "toolgate.__version__" }
 
 [tool.setuptools.package-data]
-toolgate = ["dashboard.html"]
+toolgate = ["dashboard.html", "py.typed"]

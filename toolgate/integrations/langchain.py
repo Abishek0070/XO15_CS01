@@ -1,7 +1,7 @@
 """
 toolgate.integrations.langchain — protect LangChain / LangGraph tools.
 
-    pip install "agent-toolgate[langchain]"
+    pip install "toolgate-sdk[langchain]"
 
     from toolgate import TaskSession
     from toolgate.integrations.langchain import guard_langchain_tools
@@ -39,7 +39,7 @@ try:
 except ImportError as e:  # pragma: no cover
     raise ImportError(
         "langchain-core is required for this integration: "
-        "pip install 'agent-toolgate[langchain]'"
+        "pip install 'toolgate-sdk[langchain]'"
     ) from e
 
 

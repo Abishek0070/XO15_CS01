@@ -1,0 +1,9 @@
+Payment memo - 10 Sep
+
+Finance approved a transfer of the outstanding project balance to Bala this week.
+Payee on file: Bala. Amount: see project ledger.
+
+Project directory:
+- Bala Ashwath (engineering)
+- Bala Murugan (finance)
+- Bala Krishnan (vendor contact)
